@@ -24,7 +24,7 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: {{ .Values.service.port }}
+    - port: {{ .Values.service.ingressPort }}
       targetPort: {{ (.Values.config.httpListen | split ":")._1 }}
       protocol: TCP
       name: http

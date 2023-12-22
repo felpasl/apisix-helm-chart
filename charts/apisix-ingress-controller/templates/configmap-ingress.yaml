@@ -33,6 +33,10 @@ data:
     {{- end }}
     enable_profiling: {{ .Values.config.enableProfiling }}
     apisix_resource_sync_interval: {{ .Values.config.apisixResourceSyncInterval }}
+    etcdserver:
+      enabled: {{ .Values.etcd.enabled }}
+      listenAddress: {{ .Values.config.etcdListen | quote }}
+      prefix: {{ .Values.etcd.prefix | quote }}
     kubernetes:
       kubeconfig: {{ .Values.config.kubernetes.kubeconfig | quote }}
       resync_interval: {{ .Values.config.kubernetes.resyncInterval | quote }}
@@ -53,7 +57,9 @@ data:
       plugin_metadata_cm: {{ .Values.config.kubernetes.pluginMetadataCM | quote }}
     apisix:
       admin_api_version: {{ .Values.config.apisix.adminAPIVersion | quote }}
-      {{- if .Values.config.apisix.serviceFullname }}
+      {{- if .Values.config.lightweight }}
+      default_cluster_base_url: http://127.0.0.1:{{ .Values.config.apisix.servicePort }}/apisix/admin
+      {{- else if .Values.config.apisix.serviceFullname }}
       default_cluster_base_url: http://{{ .Values.config.apisix.serviceFullname }}:{{ .Values.config.apisix.servicePort }}/apisix/admin
       {{ else }}
       default_cluster_base_url: http://{{ .Values.config.apisix.serviceName }}.{{ .Values.config.apisix.serviceNamespace }}.svc.{{ .Values.clusterDomain }}:{{ .Values.config.apisix.servicePort }}/apisix/admin
@@ -62,7 +68,7 @@ data:
       default_cluster_name: {{ .Values.config.apisix.clusterName | quote }}
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-configmap
+  name: {{ .Release.Name }}-configmap-ingress
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "apisix-ingress-controller.labels" . | nindent 4 }}

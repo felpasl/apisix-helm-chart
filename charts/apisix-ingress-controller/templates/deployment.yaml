@@ -31,7 +31,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-ingress.yaml") . | sha256sum }}
         {{- if .Values.podAnnotations }}
         {{- range $key, $value := $.Values.podAnnotations }}
         {{ $key }}: {{ $value | quote }}
@@ -51,23 +51,20 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:
-        - name: configuration
+        - name: configuration-ingress
           configMap:
-            name: {{ .Release.Name }}-configmap
+            name: {{ .Release.Name }}-configmap-ingress
             items:
               - key: config.yaml
                 path: config.yaml
-      initContainers:
-        - name: wait-apisix-admin
-          image: {{ .Values.initContainer.image }}:{{ .Values.initContainer.tag }}
-          {{ if .Values.config.apisix.serviceFullname }}
-          command: ['sh', '-c', "until nc -z {{ .Values.config.apisix.serviceFullname }} {{ .Values.config.apisix.servicePort }} ; do echo waiting for apisix-admin; sleep 2; done;"]
-          {{ else }}
-          command: ['sh', '-c', "until nc -z {{ .Values.config.apisix.serviceName }}.{{ .Values.config.apisix.serviceNamespace }}.svc.{{ .Values.clusterDomain }} {{ .Values.config.apisix.servicePort }} ; do echo waiting for apisix-admin; sleep 2; done;"]
-          {{ end}}
-
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+        {{- if .Values.config.lightweight }}
+        - name: configuration-apisix
+          configMap:
+            name: {{ .Release.Name }}-configmap-apisix
+            items:
+              - key: config.yaml
+                path: config.yaml
+        {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           command:
@@ -81,6 +78,12 @@ spec:
             - name: http
               containerPort: {{ (.Values.config.httpListen | split ":")._1 }}
               protocol: TCP
+            - name: https
+              containerPort: {{ (.Values.config.httpsListen | split ":")._1 }}
+              protocol: TCP
+            - name: etcd
+              containerPort: {{ (.Values.config.etcdListen | split ":")._1 }}
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz
@@ -93,7 +96,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - mountPath: /ingress-apisix/conf
-              name: configuration
+              name: configuration-ingress
           env:
           - name: POD_NAMESPACE
             valueFrom:
@@ -103,6 +106,49 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.name
+        {{- if .Values.config.lightweight }}
+        - name: apisix
+          image: "{{ .Values.apisix.image.repository }}:{{ .Values.apisix.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.apisix.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ (.Values.config.httpListen | split ":")._1 }}
+              protocol: TCP
+            - name: https
+              containerPort: {{ (.Values.config.httpsListen | split ":")._1 }}
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 20
+            periodSeconds: 2
+            successThreshold: 1
+            tcpSocket:
+              port: {{ .Values.service.http.containerPort }}
+            timeoutSeconds: 2
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 15
+            periodSeconds: 2
+            successThreshold: 1
+            tcpSocket:
+              port: {{ .Values.service.http.containerPort }}
+            timeoutSeconds: 1
+          resources:
+            {{- toYaml .Values.apisix.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /usr/local/apisix/conf/config.yaml
+              subPath: config.yaml
+              name: configuration-apisix
+          env:
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
